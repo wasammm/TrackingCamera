@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Face Crop & Canvas Motion Record</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background: #0d0f18;
+      color: #fff;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      position: relative;
+      width: 640px;
+      height: 480px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 30px rgba(0, 242, 254, 0.3);
+      border: 2px solid #00f2fe;
+    }
+    video { display: none; }
+    canvas {
+      width: 100%;
+      height: 100%;
+      transform: scaleX(-1); /* Lật gương cho tự nhiên */
+    }
+    .controls {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+    }
+    button {
+      padding: 12px 24px;
+      font-size: 16px;
+      font-weight: bold;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      background: linear-gradient(45deg, #ff0844, #ffb199);
+      color: white;
+      box-shadow: 0 4px 15px rgba(255, 8, 68, 0.4);
+      transition: 0.3s;
+    }
+    button:disabled { background: #555; cursor: not-allowed; box-shadow: none; }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+</head>
+<body>
+
+  <h2>Face Crop & Motion Graphics Recorder</h2>
+
+  <div class="container">
+    <video id="webcam" autoplay playsinline></video>
+    <canvas id="outputCanvas" width="640" height="480"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="recordBtn">🔴 Ghi hình Video ngắn</button>
+  </div>
+
+  <script>
+    const videoElement = document.getElementById('webcam');
+    const canvasElement = document.getElementById('outputCanvas');
+    const ctx = canvasElement.getContext('2d');
+    const recordBtn = document.getElementById('recordBtn');
+
+    let mediaRecorder;
+    let recordedChunks = [];
+    let isRecording = false;
+    let angleMotion = 0; // Biến góc xoay cho Motion động
+
+    // Danh sách 10-15 điểm viền ngoài của khuôn mặt (Face Oval Contour indices)
+    const FACE_OVAL_INDEXES = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+
+    // Khởi tạo hạt đốm sáng (Particle effect)
+    const particles = Array.from({ length: 40 }, () => ({
+      x: Math.random() * 640,
+      y: Math.random() * 480,
+      radius: Math.random() * 3 + 1,
+      speedY: Math.random() * 1.5 + 0.5,
+      alpha: Math.random()
+    }));
+
+    // 1. Khởi tạo MediaPipe Face Mesh
+    const faceMesh = new FaceMesh({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+    });
+
+    faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(renderScene);
+
+    // 2. Hàm vẽ Background Motion Động do JS tự tạo
+    function drawDynamicMotionBackground() {
+      // Nền không gian màu tối gradient
+      const bgGradient = ctx.createRadialGradient(320, 240, 50, 320, 240, 400);
+      bgGradient.addColorStop(0, '#1a103c');
+      bgGradient.addColorStop(1, '#05030a');
+      ctx.fillStyle = bgGradient;
+      ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+
+      // Hiệu ứng hạt sáng (Particles) bay lên
+      ctx.fillStyle = '#00f2fe';
+      particles.forEach(p => {
+        ctx.globalAlpha = p.alpha;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+        ctx.fill();
+        p.y -= p.speedY;
+        if (p.y < 0) { p.y = 480; p.x = Math.random() * 640; }
+      });
+      ctx.globalAlpha = 1.0;
+    }
+
+    // 3. Hàm vẽ vòng năng lượng/khung động quanh khuôn mặt
+    function drawMotionFrameOverlay(centerX, centerY, headAngle, faceRadius) {
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(headAngle);
+
+      angleMotion += 0.03; // Cập nhật góc quay liên tục
+
+      // Vòng tròn neon nét đứt quay xung quanh mặt
+      ctx.save();
+      ctx.rotate(angleMotion);
+      ctx.beginPath();
+      ctx.arc(0, 0, faceRadius * 1.4, 0, Math.PI * 2);
+      ctx.strokeStyle = '#00f2fe';
+      ctx.lineWidth = 4;
