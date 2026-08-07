@@ -1,314 +1,1319 @@
 <!DOCTYPE html>
 <html lang="vi">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Face Crop & Canvas Motion Record</title>
-  <style>
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      background: #0d0f18;
-      color: #fff;
-      margin: 0;
-      padding: 20px;
-    }
-    h2 { text-align: center; margin-bottom: 10px; }
-    p { color: #888; font-size: 14px; margin-bottom: 20px; text-align: center; }
-    
-    .container {
-      position: relative;
-      width: 100%;
-      max-width: 640px;
-      aspect-ratio: 4/3;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 0 30px rgba(0, 242, 254, 0.3);
-      border: 2px solid #00f2fe;
-      background-color: #1a103c;
-    }
-    
-    /* Bắt buộc phải có muted để trình duyệt không chặn luồng video */
-    video { display: none; }
-    
-    canvas {
-      width: 100%;
-      height: 100%;
-      transform: scaleX(-1); /* Lật gương để cử động tự nhiên như soi gương */
-      display: block;
-    }
-    
-    .controls {
-      margin-top: 25px;
-      display: flex;
-      gap: 15px;
-      justify-content: center;
-    }
-    
-    button {
-      padding: 12px 24px;
-      font-size: 16px;
-      font-weight: bold;
-      border: none;
-      border-radius: 30px;
-      cursor: pointer;
-      background: linear-gradient(45deg, #ff0844, #ffb199);
-      color: white;
-      box-shadow: 0 4px 15px rgba(255, 8, 68, 0.4);
-      transition: all 0.3s ease;
-    }
-    button:hover { transform: scale(1.05); }
-    button:active { transform: scale(0.95); }
-    button:disabled { background: #555; cursor: not-allowed; box-shadow: none; transform: none; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kế hoạch tuần — Công tác điện kế</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Firebase (dùng để đồng bộ dữ liệu real-time giữa nhiều người, không cần tự viết server) -->
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg:#F3F6F5;
+    --panel:#FFFFFF;
+    --ink:#152A31;
+    --ink-soft:#5E7379;
+    --ink-faint:#93A3A7;
+    --accent:#F0A020;
+    --accent-deep:#C67D0C;
+    --accent-wash:#FDF1DD;
+    --line:#DCE4E2;
+    --grid-line:#CBD6D4;
+    --status-pending:#93A3A7;
+    --status-progress:#F0A020;
+    --status-done:#3E9A6D;
+    --status-delayed:#D6553F;
+    --radius:10px;
+    --shadow:0 2px 10px rgba(21,42,49,0.06), 0 1px 2px rgba(21,42,49,0.05);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  ::selection{background:var(--accent-wash);}
+  :focus-visible{outline:2px solid var(--accent-deep); outline-offset:2px;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  button{font-family:inherit; cursor:pointer;}
+  input,select,textarea{font-family:inherit; font-size:14px;}
 
-  <!-- Nạp thư viện AI của Google MediaPipe -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+  /* ---------- Setup / gate screens ---------- */
+  .center-screen{
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .gate-box{
+    background:var(--panel); border-radius:14px; box-shadow:0 20px 60px rgba(21,42,49,.15); padding:28px 26px;
+    max-width:440px; width:100%;
+  }
+  .gate-box h2{font-family:'Space Grotesk',sans-serif; font-size:19px; margin:0 0 8px 0;}
+  .gate-box p{font-size:13.5px; color:var(--ink-soft); line-height:1.5; margin:0 0 16px 0;}
+  .gate-box code{background:var(--bg); padding:1px 5px; border-radius:4px; font-family:'IBM Plex Mono',monospace; font-size:12px;}
+  .gate-form{display:flex; gap:8px;}
+  .gate-form input{
+    flex:1; border:1px solid var(--line); border-radius:8px; padding:9px 11px; background:var(--bg); color:var(--ink);
+  }
+  .gate-error{color:var(--status-delayed); font-size:12.5px; margin-top:10px;}
+  .config-steps{font-size:12.5px; color:var(--ink-soft); line-height:1.7; padding-left:18px; margin:0 0 4px 0;}
+  .config-steps li{margin-bottom:4px;}
+
+  /* ---------- Header ---------- */
+  header.top{
+    background:var(--panel);
+    border-bottom:1px solid var(--line);
+    padding:18px 28px 0 28px;
+    position:sticky; top:0; z-index:20;
+  }
+  .top-row{
+    display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    padding-bottom:14px;
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand svg{flex:none;}
+  .brand h1{
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:20px; margin:0; letter-spacing:.2px;
+  }
+  .brand p{margin:2px 0 0 0; font-size:12.5px; color:var(--ink-soft);}
+  .week-nav{display:flex; align-items:center; gap:10px;}
+  .week-nav button{
+    width:32px; height:32px; border-radius:8px; border:1px solid var(--line); background:var(--panel);
+    color:var(--ink); font-size:16px; display:flex; align-items:center; justify-content:center;
+    transition:background .15s, border-color .15s;
+  }
+  .week-nav button:hover{background:var(--accent-wash); border-color:var(--accent);}
+  .week-label{font-family:'IBM Plex Mono',monospace; font-size:13px; color:var(--ink-soft); min-width:150px; text-align:center;}
+  .week-today-btn{
+    border:1px solid var(--line); background:var(--panel); border-radius:8px; padding:0 12px; height:32px;
+    font-size:13px; color:var(--ink); font-weight:500;
+  }
+  .week-today-btn:hover{background:var(--accent-wash); border-color:var(--accent);}
+
+  .action-row{display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding-bottom:14px;}
+  .btn-primary{
+    background:var(--accent); color:#211200; border:none; border-radius:8px; height:36px; padding:0 16px;
+    font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:6px; transition:background .15s;
+  }
+  .btn-primary:hover{background:var(--accent-deep); color:#fff;}
+  .btn-secondary{
+    background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:8px; height:36px; padding:0 14px;
+    font-weight:500; font-size:13.5px; transition:border-color .15s, background .15s;
+  }
+  .btn-secondary:hover{border-color:var(--accent-deep); background:var(--accent-wash);}
+
+  .filters{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-left:auto;}
+  .chip-row{display:flex; gap:6px; flex-wrap:wrap;}
+  .chip{
+    display:flex; align-items:center; gap:6px; border:1px solid var(--line); border-radius:20px; padding:5px 11px 5px 7px;
+    font-size:12.5px; background:var(--panel); color:var(--ink-soft); transition:border-color .15s, color .15s;
+  }
+  .chip .dot{width:9px; height:9px; border-radius:50%; flex:none;}
+  .chip.active{color:var(--ink); border-color:currentColor; font-weight:500;}
+  select.filter-select{
+    border:1px solid var(--line); border-radius:8px; height:32px; padding:0 8px; background:var(--panel); color:var(--ink); font-size:13px;
+  }
+  input.search{
+    border:1px solid var(--line); border-radius:8px; height:32px; padding:0 10px; background:var(--panel); color:var(--ink);
+    font-size:13px; width:200px;
+  }
+
+  /* signature: power-line above the calendar header */
+  .power-line{
+    display:grid; grid-template-columns:repeat(7,1fr);
+    border-top:2px solid var(--accent);
+    height:14px; margin-top:4px;
+  }
+  .power-line span{position:relative; display:block; height:100%;}
+  .power-line span::before{
+    content:''; position:absolute; top:-5px; left:50%; transform:translateX(-50%);
+    width:8px; height:8px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px var(--panel);
+  }
+  .power-line span::after{
+    content:''; position:absolute; top:0; left:50%; width:1px; height:100%; background:var(--accent); opacity:.55;
+  }
+
+  /* ---------- Week grid ---------- */
+  main{padding:0 28px 40px 28px;}
+  .week-grid{
+    display:grid; grid-template-columns:repeat(7,1fr); gap:1px; background:var(--grid-line);
+    border:1px solid var(--grid-line); border-radius:var(--radius); overflow:hidden; margin-top:0;
+  }
+  .day-col{background:var(--panel); display:flex; flex-direction:column; min-height:460px;}
+  .day-col.is-today{background:#FFFDF8;}
+  .day-header{
+    padding:10px 12px 9px 12px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:1px;
+  }
+  .day-name{font-size:12px; font-weight:600; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.4px;}
+  .day-col.is-today .day-name{color:var(--accent-deep);}
+  .day-date{font-family:'IBM Plex Mono',monospace; font-size:14px; color:var(--ink);}
+  .day-count{font-size:11px; color:var(--ink-faint); margin-top:2px;}
+  .day-body{flex:1; display:flex; flex-direction:column; overflow-y:auto;}
+
+  .period-block{padding:8px 8px 8px 8px;}
+  .period-block + .period-block{border-top:1px dashed var(--line);}
+  .period-label{
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--ink-faint);
+    margin-bottom:6px; display:flex; align-items:center; gap:5px;
+  }
+  .period-tasks{display:flex; flex-direction:column; gap:6px;}
+  .period-empty{font-size:11px; color:var(--ink-faint); padding:2px 2px 8px 2px;}
+  .period-add{
+    width:100%; margin-top:6px; height:26px; border:1px dashed var(--line); border-radius:7px; background:transparent;
+    color:var(--ink-soft); font-size:11.5px; transition:border-color .15s, color .15s, background .15s;
+  }
+  .period-add:hover{border-color:var(--accent-deep); color:var(--accent-deep); background:var(--accent-wash);}
+
+  /* Task card */
+  .task-card{
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--card-color, var(--accent));
+    border-radius:8px; padding:9px 10px; cursor:pointer; box-shadow:var(--shadow); transition:transform .1s, box-shadow .15s;
+  }
+  .task-card:hover{transform:translateY(-1px); box-shadow:0 4px 14px rgba(21,42,49,0.1);}
+  .task-top{display:flex; align-items:center; justify-content:space-between; gap:6px;}
+  .task-type{font-size:11.5px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:5px;}
+  .task-status-dot{width:8px; height:8px; border-radius:50%; flex:none;}
+  .task-qty{font-size:12.5px; color:var(--ink-soft); margin-top:4px; line-height:1.35;}
+  .task-qty .mono{color:var(--ink);}
+  .task-team{font-size:11px; color:var(--ink-faint); margin-top:6px; display:flex; align-items:center; gap:5px;}
+  .task-team .dot{width:7px; height:7px; border-radius:50%;}
+
+  /* ---------- Modal ---------- */
+  .overlay{
+    position:fixed; inset:0; background:rgba(21,42,49,0.35); display:none; align-items:flex-start; justify-content:center;
+    padding:40px 16px; overflow-y:auto; z-index:100;
+  }
+  .overlay.open{display:flex;}
+  .modal{
+    background:var(--panel); border-radius:14px; width:100%; max-width:480px; box-shadow:0 20px 60px rgba(21,42,49,.25);
+    padding:22px 24px 24px 24px;
+  }
+  .modal.modal-wide{max-width:600px;}
+  .modal h2{font-family:'Space Grotesk',sans-serif; font-size:17px; margin:0 0 16px 0;}
+  .field{margin-bottom:13px;}
+  .field label{display:block; font-size:12.5px; font-weight:600; color:var(--ink-soft); margin-bottom:5px;}
+  .field input, .field select, .field textarea{
+    width:100%; border:1px solid var(--line); border-radius:8px; padding:8px 10px; color:var(--ink); background:var(--bg);
+  }
+  .field textarea{resize:vertical; min-height:56px;}
+  .field-row{display:flex; gap:10px;}
+  .field-row .field{flex:1;}
+  .modal-actions{display:flex; justify-content:space-between; align-items:center; margin-top:18px;}
+  .danger-link{background:none; border:none; color:var(--status-delayed); font-size:12.5px; font-weight:500; padding:0;}
+  .danger-link:hover{text-decoration:underline;}
+  .modal-btns{display:flex; gap:8px;}
+
+  .color-pick{display:flex; gap:8px; flex-wrap:wrap; margin-top:2px;}
+  .color-swatch{width:24px; height:24px; border-radius:50%; border:2px solid transparent; cursor:pointer;}
+  .color-swatch.selected{border-color:var(--ink);}
+
+  .mgmt-section{margin-bottom:20px;}
+  .mgmt-section h3{font-family:'Space Grotesk',sans-serif; font-size:13.5px; margin:0 0 8px 0; color:var(--ink);}
+  .mgmt-hint{font-size:11.5px; color:var(--ink-faint); margin:-2px 0 8px 0;}
+
+  .staff-row{display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid var(--line); font-size:13px;}
+  .staff-row:last-child{border-bottom:none;}
+  .staff-empty{font-size:12px; color:var(--ink-faint); padding:4px 0;}
+  .inline-add-form{display:flex; gap:8px; margin-top:10px;}
+  .inline-add-form input{
+    flex:1; border:1px solid var(--line); border-radius:8px; padding:7px 10px; background:var(--bg); color:var(--ink);
+  }
+  .inline-add-form-col{display:flex; flex-direction:column; gap:10px; margin-top:12px;}
+
+  .team-mgmt-row{padding:10px 0; border-bottom:1px solid var(--line);}
+  .team-mgmt-row:last-child{border-bottom:none;}
+  .team-mgmt-top{display:flex; align-items:center; justify-content:space-between; gap:8px;}
+  .team-mgmt-left{display:flex; align-items:center; gap:8px; font-size:13.5px;}
+  .team-mgmt-left .dot{width:10px; height:10px; border-radius:50%; flex:none;}
+  .team-mgmt-left .count{color:var(--ink-faint); font-size:11.5px;}
+  .member-chip-row{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px;}
+  .member-chip{
+    border:1px solid var(--line); border-radius:16px; padding:4px 10px; font-size:11.5px; background:var(--panel);
+    color:var(--ink-soft); transition:border-color .15s, background .15s, color .15s;
+  }
+  .member-chip.on{background:var(--accent-wash); border-color:var(--accent-deep); color:var(--ink); font-weight:500;}
+  .member-empty{font-size:11.5px; color:var(--ink-faint); margin-top:8px;}
+
+  .icon-btn{background:none; border:none; color:var(--ink-faint); font-size:15px; padding:2px 4px;}
+  .icon-btn:hover{color:var(--status-delayed);}
+
+  footer.note{
+    max-width:1400px; margin:18px 28px 0 28px; font-size:11.5px; color:var(--ink-faint);
+    display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .sync-dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--status-done); margin-right:5px;}
+  .sync-dot.offline{background:var(--status-delayed);}
+  .link-btn{background:none; border:none; color:var(--ink-soft); font-size:11.5px; text-decoration:underline; padding:0;}
+  .link-btn:hover{color:var(--accent-deep);}
+
+  #loadingState{padding:60px 28px; text-align:center; color:var(--ink-soft); font-size:13.5px;}
+
+  .export-btn{display:flex; align-items:center; gap:6px;}
+  .export-btn svg{flex:none;}
+  .export-btn:disabled{opacity:.55; cursor:default;}
+
+  /* Off-screen report used to render the PDF export */
+  #printReport{
+    position:fixed; left:-9999px; top:0; width:760px; background:#fff; color:#152A31;
+    font-family:'Inter',system-ui,sans-serif; padding:28px;
+  }
+  #printReport .pr-letterhead{display:flex; justify-content:space-between; gap:16px; margin-bottom:18px;}
+  #printReport .pr-lh-col{width:48%; text-align:center;}
+  #printReport .pr-lh-1{font-weight:700; font-size:12px; text-transform:uppercase; margin:0;}
+  #printReport .pr-lh-2{font-weight:700; font-size:12px; text-transform:uppercase; margin:3px 0 0 0;}
+  #printReport .pr-lh-right .pr-lh-2{text-transform:none;}
+  #printReport .pr-lh-rule{width:55%; height:1px; background:#152A31; margin:4px auto 0 auto;}
+  #printReport h2{font-family:'Space Grotesk',sans-serif; font-size:18px; margin:0 0 2px 0; text-align:center;}
+  #printReport .pr-sub{font-size:12.5px; color:#5E7379; margin-bottom:2px; text-align:center;}
+  #printReport .pr-meta{font-size:11px; color:#93A3A7; margin-bottom:16px; text-align:center;}
+  #printReport table{width:100%; border-collapse:collapse; font-size:11px;}
+  #printReport th{
+    background:#FDF1DD; color:#152A31; text-align:left; padding:7px 8px; border:1px solid #E9DCC0; font-size:10px;
+    text-transform:uppercase; letter-spacing:.3px;
+  }
+  #printReport td{padding:7px 8px; border:1px solid #E3E9E8; vertical-align:top;}
+  #printReport tr:nth-child(even) td{background:#FAFBFA;}
+  #printReport .pr-day-sep td{background:#F3F6F5; font-weight:600; font-family:'IBM Plex Mono',monospace; font-size:11px; color:#152A31; padding:6px 8px;}
+  #printReport .pr-dot{display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px;}
+  #printReport .pr-empty{padding:24px 0; text-align:center; color:#93A3A7; font-size:12px;}
+
+  @media (max-width:900px){
+    .week-grid{grid-template-columns:1fr; }
+    .power-line{grid-template-columns:1fr; display:none;}
+    header.top{padding:14px 16px 0 16px;}
+    main{padding:0 16px 32px 16px;}
+    .filters{margin-left:0; width:100%;}
+    input.search{width:100%;}
+  }
+</style>
 </head>
 <body>
 
-  <h2>Face Crop & Motion Graphics</h2>
-  <p>Hãy cấp quyền Camera và đợi khoảng 10-15 giây ở lần tải đầu tiên để AI khởi động.</p>
+<!-- Screen shown if Firebase chưa được cấu hình (xem hướng dẫn trong file / trong khối script) -->
+<div class="center-screen" id="configScreen" style="display:none;">
+  <div class="gate-box">
+    <h2>Cần cấu hình Firebase trước khi dùng</h2>
+    <p>Trang này dùng Firebase Firestore (miễn phí) để nhiều người cùng xem/cập nhật kế hoạch theo thời gian thực mà không cần tự viết server. Hãy làm theo các bước sau rồi nạp lại trang:</p>
+    <ol class="config-steps">
+      <li>Vào <code>firebase.google.com</code> → tạo project mới (miễn phí).</li>
+      <li>Trong project, bật <b>Firestore Database</b> (chọn chế độ Production hoặc Test).</li>
+      <li>Vào <b>Project settings → General → Your apps → Web app</b> để lấy đoạn cấu hình (apiKey, projectId…).</li>
+      <li>Mở file HTML này, tìm biến <code>FIREBASE_CONFIG</code> ở gần đầu thẻ <code>&lt;script&gt;</code> và dán cấu hình của bạn vào.</li>
+      <li>Vào tab <b>Rules</b> của Firestore và đặt quyền đọc/ghi cho collection <code>planner-workspaces</code> (mẫu quy tắc có trong chú thích của file).</li>
+    </ol>
+    <p>Sau khi lưu file và tải lại, trang sẽ hoạt động bình thường và có thể đưa lên GitHub Pages.</p>
+  </div>
+</div>
 
-  <div class="container">
-    <!-- Đã thêm 'muted' để hỗ trợ Autoplay trên mọi trình duyệt -->
-    <video id="webcam" autoplay playsinline muted></video>
-    <canvas id="outputCanvas" width="640" height="480"></canvas>
+<!-- Cổng nhập mã đơn vị / phòng làm việc -->
+<div class="center-screen" id="workspaceGate" style="display:none;">
+  <div class="gate-box">
+    <h2>Kế hoạch tuần — Công tác điện kế</h2>
+    <p>Nhập mã đơn vị / phòng làm việc. Mọi người dùng chung mã này sẽ thấy và cập nhật chung một kế hoạch, theo thời gian thực.</p>
+    <form class="gate-form" id="gateForm">
+      <input type="text" id="gateCodeInput" placeholder="VD: dienluc-rachgia-to-kd" required>
+      <button type="submit" class="btn-primary">Vào</button>
+    </form>
+    <div class="gate-error" id="gateError" style="display:none;"></div>
+  </div>
+</div>
+
+<div id="appRoot" style="display:none;">
+<header class="top">
+  <div class="top-row">
+    <div class="brand">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+        <circle cx="17" cy="17" r="15" stroke="#152A31" stroke-width="1.6"/>
+        <circle cx="17" cy="17" r="2" fill="#F0A020"/>
+        <line x1="17" y1="17" x2="24" y2="10" stroke="#F0A020" stroke-width="1.8" stroke-linecap="round"/>
+        <line x1="8" y1="24" x2="10.5" y2="21.5" stroke="#152A31" stroke-width="1.4" stroke-linecap="round"/>
+        <line x1="26" y1="24" x2="23.5" y2="21.5" stroke="#152A31" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <div>
+        <h1>Kế hoạch tuần — Công tác điện kế</h1>
+        <p>Thay điện kế · Lắp đặt mới · Khắc phục đo đếm · Việc khác</p>
+      </div>
+    </div>
+    <div class="week-nav">
+      <button id="prevWeek" aria-label="Tuần trước">‹</button>
+      <div class="week-label" id="weekLabel">—</div>
+      <button id="nextWeek" aria-label="Tuần sau">›</button>
+      <button class="week-today-btn" id="todayBtn">Tuần này</button>
+    </div>
   </div>
 
-  <div class="controls">
-    <button id="recordBtn" disabled>⏳ Đang tải AI...</button>
+  <div class="action-row">
+    <button class="btn-primary" id="addTaskBtn">+ Thêm công việc</button>
+    <button class="btn-secondary" id="manageTeamsBtn">Quản lý nhóm &amp; nhân sự</button>
+    <button class="btn-secondary export-btn" id="exportExcelBtn">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 4l6 6M10 4l-6 6" stroke="currentColor" stroke-width="1.2"/></svg>
+      Xuất Excel
+    </button>
+    <button class="btn-secondary export-btn" id="exportPdfBtn">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5h5l3 3v8a.5.5 0 01-.5.5h-7.5a.5.5 0 01-.5-.5v-10a.5.5 0 01.5-.5z" stroke="currentColor" stroke-width="1.2"/><path d="M8 1.5v3h3" stroke="currentColor" stroke-width="1.2"/></svg>
+      Xuất PDF
+    </button>
+    <div class="filters">
+      <input class="search" id="searchInput" placeholder="Tìm khu vực / trạm / ghi chú…">
+      <select class="filter-select" id="typeFilter">
+        <option value="all">Tất cả loại việc</option>
+      </select>
+      <select class="filter-select" id="statusFilter">
+        <option value="all">Tất cả trạng thái</option>
+      </select>
+    </div>
   </div>
+  <div class="action-row" style="padding-top:0; padding-bottom:12px;">
+    <div class="chip-row" id="teamChips"></div>
+  </div>
+  <div class="power-line" id="powerLine">
+    <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+  </div>
+</header>
 
-  <script>
-    const videoElement = document.getElementById('webcam');
-    const canvasElement = document.getElementById('outputCanvas');
-    const ctx = canvasElement.getContext('2d');
-    const recordBtn = document.getElementById('recordBtn');
+<main>
+  <div id="loadingState">Đang kết nối dữ liệu…</div>
+  <div class="week-grid" id="weekGrid" style="display:none;"></div>
+</main>
 
-    let mediaRecorder;
-    let recordedChunks = [];
-    let isRecording = false;
-    let angleMotion = 0; // Biến góc xoay cho Motion động
-    let isAILoaded = false;
+<footer class="note" id="footerNote" style="display:none;">
+  <span><span class="sync-dot" id="syncDot"></span><span id="syncLabel">Đã đồng bộ</span></span>
+  <span>Mã đơn vị: <b class="mono" id="workspaceLabel">—</b></span>
+  <button class="link-btn" id="changeWorkspaceBtn">Đổi mã đơn vị</button>
+</footer>
+</div>
 
-    // Vẽ chữ chờ tải AI lên Canvas ban đầu
-    ctx.fillStyle = "#1a103c";
-    ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
-    ctx.fillStyle = "#00f2fe";
-    ctx.font = "20px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("Đang khởi động Camera & tải dữ liệu AI...", canvasElement.width / 2, canvasElement.height / 2);
+<!-- Task modal -->
+<div class="overlay" id="taskOverlay">
+  <div class="modal">
+    <h2 id="taskModalTitle">Thêm công việc</h2>
+    <form id="taskForm">
+      <div class="field-row">
+        <div class="field">
+          <label for="f-type">Loại công việc</label>
+          <select id="f-type" required></select>
+        </div>
+        <div class="field">
+          <label for="f-period">Buổi</label>
+          <select id="f-period" required></select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="f-team">Nhóm thực hiện</label>
+          <select id="f-team" required></select>
+        </div>
+        <div class="field">
+          <label for="f-date">Ngày thực hiện</label>
+          <input type="date" id="f-date" required>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="f-quantity">Số lượng</label>
+          <input type="number" id="f-quantity" min="1" step="1" value="1" required>
+        </div>
+        <div class="field">
+          <label for="f-area">Khu vực / Trạm</label>
+          <input type="text" id="f-area" placeholder="VD: Trạm Vĩnh Thanh / Khu vực P.5" required>
+        </div>
+      </div>
+      <div class="field">
+        <label for="f-status">Trạng thái</label>
+        <select id="f-status"></select>
+      </div>
+      <div class="field">
+        <label for="f-note">Ghi chú</label>
+        <textarea id="f-note" placeholder="Ghi chú thêm cho công việc…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="danger-link" id="deleteTaskBtn" style="visibility:hidden;">Xoá công việc</button>
+        <div class="modal-btns">
+          <button type="button" class="btn-secondary" id="cancelTaskBtn">Huỷ</button>
+          <button type="submit" class="btn-primary">Lưu</button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
 
-    // Danh sách các điểm mốc tạo thành viền khuôn mặt (Face Oval Contour)
-    const FACE_OVAL_INDEXES = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+<!-- Team & staff management modal -->
+<div class="overlay" id="teamOverlay">
+  <div class="modal modal-wide">
+    <h2>Quản lý nhóm &amp; nhân sự</h2>
 
-    // Tạo các hạt đốm sáng bay lên cho nền
-    const particles = Array.from({ length: 40 }, () => ({
-      x: Math.random() * 640,
-      y: Math.random() * 480,
-      radius: Math.random() * 3 + 1,
-      speedY: Math.random() * 1.5 + 0.5,
-      alpha: Math.random()
-    }));
+    <div class="mgmt-section">
+      <h3>Danh sách nhân sự (Tổ)</h3>
+      <p class="mgmt-hint">Cập nhật danh sách nhân sự thuộc Tổ trước, sau đó mới phân công vào từng nhóm bên dưới.</p>
+      <div id="staffList"></div>
+      <form id="addStaffForm" class="inline-add-form">
+        <input type="text" id="newStaffName" placeholder="Tên nhân sự mới">
+        <button type="submit" class="btn-secondary">+ Thêm</button>
+      </form>
+    </div>
 
-    // 1. Cấu hình AI Face Mesh
-    const faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-    });
+    <div class="mgmt-section">
+      <h3>Nhóm công tác</h3>
+      <div id="teamList"></div>
+      <form id="addTeamForm" class="inline-add-form-col">
+        <div class="field">
+          <label for="newTeamName">Tên nhóm mới</label>
+          <input type="text" id="newTeamName" placeholder="VD: Nhóm 4 - Khu vực Bắc">
+        </div>
+        <div class="field">
+          <label>Màu đại diện</label>
+          <div class="color-pick" id="colorPick"></div>
+        </div>
+        <button type="submit" class="btn-primary" style="align-self:flex-start;">+ Thêm nhóm</button>
+      </form>
+    </div>
 
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
+    <div class="modal-actions">
+      <button type="button" class="danger-link" id="resetDataBtn">Xoá toàn bộ dữ liệu</button>
+      <button type="button" class="btn-secondary" id="closeTeamModalBtn">Đóng</button>
+    </div>
+  </div>
+</div>
 
-    faceMesh.onResults(renderScene);
+<div id="printReport" aria-hidden="true"></div>
 
-    // 2. Hàm vẽ Background không gian có hạt bay
-    function drawDynamicMotionBackground() {
-      const bgGradient = ctx.createRadialGradient(320, 240, 50, 320, 240, 400);
-      bgGradient.addColorStop(0, '#1a103c');
-      bgGradient.addColorStop(1, '#05030a');
-      ctx.fillStyle = bgGradient;
-      ctx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+<script>
+(function(){
+  "use strict";
 
-      ctx.fillStyle = '#00f2fe';
-      particles.forEach(p => {
-        ctx.globalAlpha = p.alpha;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-        ctx.fill();
-        p.y -= p.speedY;
-        if (p.y < 0) { p.y = 480; p.x = Math.random() * 640; }
+  // ============================================================
+  // CẤU HÌNH FIREBASE — thay các giá trị bên dưới bằng cấu hình
+  // web app lấy từ Firebase Console (Project settings > Your apps).
+  // Đây là dịch vụ MIỄN PHÍ, không cần bạn tự viết/host server,
+  // hoạt động tốt khi trang được deploy tĩnh trên GitHub Pages.
+  //
+  // Mẫu Firestore Rules cần đặt (tab Rules trong Firestore):
+  //   rules_version = '2';
+  //   service cloud.firestore {
+  //     match /databases/{database}/documents {
+  //       match /planner-workspaces/{workspace} {
+  //         allow read, write: if true;
+  //       }
+  //     }
+  //   }
+  // Lưu ý: quy tắc trên cho phép bất kỳ ai biết "mã đơn vị" đọc/ghi
+  // dữ liệu của mã đó — phù hợp cho nhóm nội bộ, không dùng cho dữ
+  // liệu nhạy cảm. Có thể siết chặt hơn bằng Firebase Auth nếu cần.
+  // ============================================================
+  var FIREBASE_CONFIG = {
+    apiKey: "YAIzaSyC9uM2gA8PouzglGhgyq7cpvUfdNp6vzZM",
+    authDomain: "kehoachcongtac-dlrg.firebaseapp.com",
+    projectId: "kehoachcongtac-dlrg",
+    storageBucket: "kehoachcongtac-dlrg.firebasestorage.app",
+    messagingSenderId: "920415302333",
+    appId: "1:920415302333:web:c11e06b842d8a30ba43dd4",
+  };
+  var WORKSPACE_STORAGE_KEY = "planner-workspace-code";
+
+  var TEAM_PALETTE = ["#2E8B8B","#4C5FD5","#E4572E","#8E5572","#5B8C5A","#57708A","#C97C0A","#A64AC9"];
+
+  var TYPE_META = {
+    "thay-dien-ke":      { label:"Thay điện kế",            icon:"⟲" },
+    "lap-moi":           { label:"Lắp đặt điện kế mới",     icon:"＋" },
+    "khac-phuc-do-dem":  { label:"Khắc phục đo đếm",        icon:"⚙" },
+    "khac":              { label:"Khác",                     icon:"•" }
+  };
+
+  var STATUS_META = {
+    "chua-thuc-hien": { label:"Chưa thực hiện", color:"var(--status-pending)" },
+    "dang-thuc-hien": { label:"Đang thực hiện", color:"var(--status-progress)" },
+    "hoan-thanh":     { label:"Hoàn thành",     color:"var(--status-done)" },
+    "tri-hoan":       { label:"Trì hoãn",       color:"var(--status-delayed)" }
+  };
+
+  var STATUS_HEX = {
+    "chua-thuc-hien": "#93A3A7",
+    "dang-thuc-hien": "#F0A020",
+    "hoan-thanh":     "#3E9A6D",
+    "tri-hoan":       "#D6553F"
+  };
+
+  var PERIOD_META = {
+    "sang":  { label:"Buổi sáng",  icon:"☀" },
+    "chieu": { label:"Buổi chiều", icon:"☾" }
+  };
+  var PERIOD_ORDER = ["sang","chieu"];
+
+  var DAY_NAMES = ["Thứ Hai","Thứ Ba","Thứ Tư","Thứ Năm","Thứ Sáu","Thứ Bảy","Chủ Nhật"];
+
+  var state = {
+    staff: [],
+    teams: [],
+    tasks: [],
+    weekStart: getMonday(new Date()),
+    activeTeamFilter: null,   // null = all
+    typeFilter: "all",
+    statusFilter: "all",
+    search: "",
+    editingTaskId: null
+  };
+
+  var db = null;
+  var docRef = null;
+  var workspaceCode = "";
+  var firstSnapshotReceived = false;
+
+  // ---------- date helpers ----------
+  function getMonday(d){
+    var date = new Date(d);
+    var day = date.getDay();
+    var diff = (day === 0 ? -6 : 1) - day;
+    date.setDate(date.getDate() + diff);
+    date.setHours(0,0,0,0);
+    return date;
+  }
+  function addDays(d, n){ var r = new Date(d); r.setDate(r.getDate()+n); return r; }
+  function isoDate(d){
+    var y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,"0"), day=String(d.getDate()).padStart(2,"0");
+    return y+"-"+m+"-"+day;
+  }
+  function vnDate(d){
+    var day=String(d.getDate()).padStart(2,"0"), m=String(d.getMonth()+1).padStart(2,"0");
+    return day+"/"+m;
+  }
+  function sameDate(a,b){ return isoDate(a)===isoDate(b); }
+  function vnDateFull(d){
+    var day=String(d.getDate()).padStart(2,"0"), m=String(d.getMonth()+1).padStart(2,"0");
+    return day+"/"+m+"/"+d.getFullYear();
+  }
+  function sanitizeWorkspaceCode(raw){
+    return String(raw||"").trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"") // bỏ dấu tiếng Việt
+      .replace(/đ/g,"d").replace(/[^a-z0-9-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");
+  }
+
+  // ---------- Firebase / realtime sync ----------
+  function isFirebaseConfigured(){
+    return FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey.indexOf("YOUR_") !== 0;
+  }
+  function setSyncStatus(online){
+    var dot = document.getElementById("syncDot");
+    var label = document.getElementById("syncLabel");
+    if(!dot) return;
+    dot.classList.toggle("offline", !online);
+    label.textContent = online ? "Đã đồng bộ" : "Mất kết nối — đang thử lại…";
+  }
+  function seedDefaults(){
+    state.staff = [];
+    state.teams = [
+      { id: "team-1", name: "Nhóm 1", color: TEAM_PALETTE[0], memberIds: [] },
+      { id: "team-2", name: "Nhóm 2", color: TEAM_PALETTE[1], memberIds: [] },
+      { id: "team-3", name: "Nhóm 3", color: TEAM_PALETTE[2], memberIds: [] }
+    ];
+    state.tasks = [];
+  }
+  function uid(prefix){ return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,7); }
+
+  async function saveData(){
+    if(!docRef) return;
+    try{
+      await docRef.set({
+        staff: state.staff, teams: state.teams, tasks: state.tasks,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-      ctx.globalAlpha = 1.0;
+    }catch(e){
+      console.error("Lỗi lưu dữ liệu:", e);
+      alert("Không thể lưu dữ liệu lên máy chủ. Kiểm tra kết nối mạng và thử lại.");
     }
+  }
 
-    // 3. Hàm vẽ vòng năng lượng bao quanh khuôn mặt
-    function drawMotionFrameOverlay(centerX, centerY, headAngle, faceRadius) {
-      ctx.save();
-      ctx.translate(centerX, centerY);
-      ctx.rotate(headAngle);
-
-      angleMotion += 0.03; // Cập nhật chuyển động xoay
-
-      // Vòng tròn neon nét đứt quay xuôi chiều
-      ctx.save();
-      ctx.rotate(angleMotion);
-      ctx.beginPath();
-      ctx.arc(0, 0, faceRadius * 1.4, 0, Math.PI * 2);
-      ctx.strokeStyle = '#00f2fe';
-      ctx.lineWidth = 4;
-      ctx.setLineDash([15, 15]);
-      ctx.shadowColor = '#00f2fe';
-      ctx.shadowBlur = 15;
-      ctx.stroke();
-      ctx.restore();
-
-      // Vòng hào quang thứ 2 quay ngược chiều
-      ctx.save();
-      ctx.rotate(-angleMotion * 1.5);
-      ctx.beginPath();
-      ctx.arc(0, 0, faceRadius * 1.6, 0, Math.PI * 2);
-      ctx.strokeStyle = '#ff0844';
-      ctx.lineWidth = 2;
-      ctx.setLineDash([5, 25]);
-      ctx.shadowColor = '#ff0844';
-      ctx.shadowBlur = 10;
-      ctx.stroke();
-      ctx.restore();
-
-      ctx.restore();
+  function startWorkspace(code){
+    workspaceCode = sanitizeWorkspaceCode(code);
+    if(!workspaceCode){
+      showGateError("Mã đơn vị không hợp lệ, vui lòng chỉ dùng chữ, số và dấu gạch ngang.");
+      return;
     }
-
-    // 4. Xử lý mỗi khung hình từ Camera
-    function renderScene(results) {
-      // Mở khóa nút Ghi hình khi AI đã hoạt động
-      if (!isAILoaded) {
-        isAILoaded = true;
-        recordBtn.disabled = false;
-        recordBtn.textContent = '🔴 Ghi hình Video ngắn';
+    try{
+      if(!firebase.apps || firebase.apps.length === 0){
+        firebase.initializeApp(FIREBASE_CONFIG);
       }
+      db = firebase.firestore();
+    }catch(e){
+      console.error(e);
+      showGateError("Không thể kết nối Firebase. Kiểm tra lại FIREBASE_CONFIG trong file.");
+      return;
+    }
+    localStorage.setItem(WORKSPACE_STORAGE_KEY, workspaceCode);
+    document.getElementById("workspaceGate").style.display = "none";
+    document.getElementById("appRoot").style.display = "block";
+    document.getElementById("workspaceLabel").textContent = workspaceCode;
 
-      ctx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    docRef = db.collection("planner-workspaces").doc(workspaceCode);
+    docRef.onSnapshot(function(snap){
+      setSyncStatus(true);
+      if(snap.exists){
+        var data = snap.data() || {};
+        state.staff = data.staff || [];
+        state.teams = data.teams || [];
+        state.tasks = data.tasks || [];
+      } else if(!firstSnapshotReceived){
+        seedDefaults();
+        saveData();
+      }
+      firstSnapshotReceived = true;
+      document.getElementById("loadingState").style.display = "none";
+      document.getElementById("weekGrid").style.display = "grid";
+      document.getElementById("footerNote").style.display = "flex";
+      renderAll();
+    }, function(err){
+      console.error("Lỗi đồng bộ:", err);
+      setSyncStatus(false);
+    });
+  }
+  function showGateError(msg){
+    var el = document.getElementById("gateError");
+    el.textContent = msg;
+    el.style.display = "block";
+  }
 
-      // Bước 4.1: Vẽ Background Motion
-      drawDynamicMotionBackground();
+  // ---------- rendering: header/filters ----------
+  function renderWeekLabel(){
+    var start = state.weekStart, end = addDays(start,6);
+    document.getElementById("weekLabel").textContent = vnDate(start)+" – "+vnDate(end)+" / "+end.getFullYear();
+  }
 
-      // Kiểm tra có nhận diện được mặt không
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
+  function renderTypeFilterOptions(){
+    var sel = document.getElementById("typeFilter");
+    sel.innerHTML = '<option value="all">Tất cả loại việc</option>';
+    Object.keys(TYPE_META).forEach(function(key){
+      var opt = document.createElement("option");
+      opt.value = key; opt.textContent = TYPE_META[key].label;
+      sel.appendChild(opt);
+    });
+    sel.value = state.typeFilter;
+  }
+  function renderStatusFilterOptions(){
+    var sel = document.getElementById("statusFilter");
+    sel.innerHTML = '<option value="all">Tất cả trạng thái</option>';
+    Object.keys(STATUS_META).forEach(function(key){
+      var opt = document.createElement("option");
+      opt.value = key; opt.textContent = STATUS_META[key].label;
+      sel.appendChild(opt);
+    });
+    sel.value = state.statusFilter;
+  }
 
-        // Lấy tọa độ 2 mắt để làm tâm và tính góc xoay đầu
-        const lx = landmarks[33].x * canvasElement.width;
-        const ly = landmarks[33].y * canvasElement.height;
-        const rx = landmarks[263].x * canvasElement.width;
-        const ry = landmarks[263].y * canvasElement.height;
+  function renderTeamChips(){
+    var wrap = document.getElementById("teamChips");
+    wrap.innerHTML = "";
+    var allChip = document.createElement("button");
+    allChip.className = "chip" + (state.activeTeamFilter===null ? " active" : "");
+    allChip.style.color = state.activeTeamFilter===null ? "var(--ink)" : "";
+    allChip.innerHTML = '<span class="dot" style="background:var(--ink-faint)"></span>Tất cả nhóm';
+    allChip.onclick = function(){ state.activeTeamFilter = null; renderAll(); };
+    wrap.appendChild(allChip);
 
-        const centerX = (lx + rx) / 2;
-        const centerY = (ly + ry) / 2;
-        const faceRadius = Math.hypot(rx - lx, ry - ly) * 1.2;
-        const headAngle = Math.atan2(ry - ly, rx - lx);
+    state.teams.forEach(function(team){
+      var chip = document.createElement("button");
+      var active = state.activeTeamFilter === team.id;
+      chip.className = "chip" + (active ? " active" : "");
+      if(active) chip.style.color = team.color;
+      chip.innerHTML = '<span class="dot" style="background:'+team.color+'"></span>'+escapeHTML(team.name);
+      chip.onclick = function(){ state.activeTeamFilter = active ? null : team.id; renderAll(); };
+      wrap.appendChild(chip);
+    });
+  }
 
-        // Bước 4.2: Cắt khuôn mặt
-        ctx.save();
-        ctx.beginPath();
-        FACE_OVAL_INDEXES.forEach((index, i) => {
-          const pt = landmarks[index];
-          const x = pt.x * canvasElement.width;
-          const y = pt.y * canvasElement.height;
-          if (i === 0) ctx.moveTo(x, y);
-          else ctx.lineTo(x, y);
+  // ---------- task filtering ----------
+  function filteredTasksForDayPeriod(dayDate, period){
+    var q = state.search.trim().toLowerCase();
+    return state.tasks.filter(function(t){
+      if(t.date !== isoDate(dayDate)) return false;
+      if(t.period !== period) return false;
+      if(state.activeTeamFilter && t.teamId !== state.activeTeamFilter) return false;
+      if(state.typeFilter !== "all" && t.type !== state.typeFilter) return false;
+      if(state.statusFilter !== "all" && t.status !== state.statusFilter) return false;
+      if(q){
+        var hay = ((t.area||"")+" "+(t.note||"")).toLowerCase();
+        if(hay.indexOf(q) === -1) return false;
+      }
+      return true;
+    }).sort(function(a,b){ return (a.teamId||"").localeCompare(b.teamId||""); });
+  }
+
+  function teamById(id){ return state.teams.find(function(t){ return t.id===id; }); }
+  function staffById(id){ return state.staff.find(function(s){ return s.id===id; }); }
+
+  // ---------- render calendar ----------
+  function renderWeekGrid(){
+    var grid = document.getElementById("weekGrid");
+    grid.innerHTML = "";
+    var today = new Date();
+    for(var i=0;i<7;i++){
+      var dayDate = addDays(state.weekStart, i);
+      var col = document.createElement("div");
+      col.className = "day-col" + (sameDate(dayDate,today) ? " is-today" : "");
+
+      var dayTotal = filteredTasksForDayPeriod(dayDate,"sang").length + filteredTasksForDayPeriod(dayDate,"chieu").length;
+
+      var header = document.createElement("div");
+      header.className = "day-header";
+      header.innerHTML =
+        '<div class="day-name">'+DAY_NAMES[i]+'</div>'+
+        '<div class="day-date mono">'+vnDate(dayDate)+'</div>'+
+        '<div class="day-count">'+(dayTotal ? dayTotal+" công việc" : "")+'</div>';
+      col.appendChild(header);
+
+      var body = document.createElement("div");
+      body.className = "day-body";
+
+      PERIOD_ORDER.forEach(function(period){
+        var tasks = filteredTasksForDayPeriod(dayDate, period);
+        var block = document.createElement("div");
+        block.className = "period-block";
+
+        var label = document.createElement("div");
+        label.className = "period-label";
+        label.innerHTML = '<span>'+PERIOD_META[period].icon+'</span>'+PERIOD_META[period].label;
+        block.appendChild(label);
+
+        var taskWrap = document.createElement("div");
+        taskWrap.className = "period-tasks";
+        if(tasks.length === 0){
+          var empty = document.createElement("div");
+          empty.className = "period-empty";
+          empty.textContent = "Chưa có công việc";
+          taskWrap.appendChild(empty);
+        } else {
+          tasks.forEach(function(t){ taskWrap.appendChild(taskCardEl(t)); });
+        }
+        block.appendChild(taskWrap);
+
+        var addBtn = document.createElement("button");
+        addBtn.className = "period-add";
+        addBtn.textContent = "+ Thêm";
+        addBtn.onclick = (function(dstr, p){ return function(){ openTaskModal(null, dstr, p); }; })(isoDate(dayDate), period);
+        block.appendChild(addBtn);
+
+        body.appendChild(block);
+      });
+
+      col.appendChild(body);
+      grid.appendChild(col);
+    }
+  }
+
+  function taskCardEl(t){
+    var team = teamById(t.teamId);
+    var typeMeta = TYPE_META[t.type] || TYPE_META["khac"];
+    var statusMeta = STATUS_META[t.status] || STATUS_META["chua-thuc-hien"];
+    var card = document.createElement("div");
+    card.className = "task-card";
+    card.style.setProperty("--card-color", team ? team.color : "var(--ink-faint)");
+    card.innerHTML =
+      '<div class="task-top">'+
+        '<div class="task-type">'+typeMeta.icon+' '+typeMeta.label+'</div>'+
+        '<div class="task-status-dot" style="background:'+statusMeta.color+'" title="'+statusMeta.label+'"></div>'+
+      '</div>'+
+      '<div class="task-qty">SL: <span class="mono">'+escapeHTML(t.quantity)+'</span> · '+escapeHTML(t.area)+'</div>'+
+      '<div class="task-team"><span class="dot" style="background:'+(team?team.color:"var(--ink-faint)")+'"></span>'+(team?escapeHTML(team.name):"Chưa phân nhóm")+'</div>';
+    card.onclick = function(){ openTaskModal(t.id); };
+    return card;
+  }
+
+  function escapeHTML(s){
+    return String(s==null?"":s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  function renderAll(){
+    renderWeekLabel();
+    renderTeamChips();
+    renderWeekGrid();
+  }
+
+  // ---------- export: shared data gathering ----------
+  function getWeekRowsForExport(){
+    var rows = [];
+    for(var i=0;i<7;i++){
+      var dayDate = addDays(state.weekStart, i);
+      PERIOD_ORDER.forEach(function(period){
+        var tasks = filteredTasksForDayPeriod(dayDate, period);
+        tasks.forEach(function(t){
+          rows.push({ dayDate: dayDate, dayIndex: i, period: period, task: t });
         });
-        ctx.closePath();
+      });
+    }
+    return rows;
+  }
+  function exportFileNameBase(){
+    return "ke-hoach-tuan_" + isoDate(state.weekStart) + "_den_" + isoDate(addDays(state.weekStart,6));
+  }
 
-        ctx.shadowColor = '#4facfe';
-        ctx.shadowBlur = 20;
+  // ---------- export: Excel ----------
+  async function handleExportExcel(){
+    if(typeof XLSX === "undefined"){
+      alert("Không tải được thư viện xuất Excel. Vui lòng kiểm tra kết nối mạng và thử lại.");
+      return;
+    }
+    var rows = getWeekRowsForExport();
+    if(rows.length === 0){
+      alert("Không có công việc nào trong tuần này (theo bộ lọc hiện tại) để xuất.");
+      return;
+    }
+    var start = state.weekStart, end = addDays(start,6);
+    var aoa = [];
+    aoa.push(["ĐIỆN LỰC RẠCH GIÁ", "", "", "", "", "", "", "CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM"]);
+    aoa.push(["TỔ KINH DOANH", "", "", "", "", "", "", "Độc lập - Tự do - Hạnh phúc"]);
+    aoa.push([]);
+    aoa.push(["KẾ HOẠCH TUẦN — CÔNG TÁC ĐIỆN KẾ"]);
+    aoa.push(["Tuần " + vnDateFull(start) + " – " + vnDateFull(end)]);
+    aoa.push([]);
+    aoa.push(["Ngày","Thứ","Buổi","Nhóm thực hiện","Loại công việc","Số lượng","Khu vực / Trạm","Trạng thái","Ghi chú"]);
 
-        ctx.clip(); // Giữ lại phần camera bên trong viền mặt
+    rows.forEach(function(r){
+      var t = r.task;
+      var team = teamById(t.teamId);
+      var typeMeta = TYPE_META[t.type] || TYPE_META["khac"];
+      var statusMeta = STATUS_META[t.status] || STATUS_META["chua-thuc-hien"];
+      aoa.push([
+        vnDateFull(r.dayDate),
+        DAY_NAMES[r.dayIndex],
+        PERIOD_META[r.period].label,
+        team ? team.name : "Chưa phân nhóm",
+        typeMeta.label,
+        t.quantity,
+        t.area || "",
+        statusMeta.label,
+        t.note || ""
+      ]);
+    });
 
-        // Đổ hình từ camera vào khuôn mặt đã cắt
-        ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-        ctx.restore();
+    var ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws["!cols"] = [
+      {wch:12}, {wch:10}, {wch:11}, {wch:16}, {wch:20}, {wch:9}, {wch:26}, {wch:16}, {wch:30}
+    ];
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ke hoach tuan");
+    XLSX.writeFile(wb, exportFileNameBase() + ".xlsx");
+  }
 
-        // Bước 4.3: Vẽ vòng quay quanh mặt
-        drawMotionFrameOverlay(centerX, centerY, headAngle, faceRadius);
-      } else {
-        // TRƯỜNG HỢP CAMERA CHẠY NHƯNG CHƯA ĐƯA MẶT VÀO:
-        // Vẽ mờ camera để người dùng biết camera vẫn đang hoạt động
-        ctx.save();
-        ctx.globalAlpha = 0.4; // Độ mờ
-        ctx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-        ctx.restore();
+  // ---------- export: PDF ----------
+  function buildPrintReport(rows){
+    var container = document.getElementById("printReport");
+    var start = state.weekStart, end = addDays(start,6);
+    var html = "";
 
-        ctx.fillStyle = "#fff";
-        ctx.font = "bold 24px sans-serif";
-        ctx.textAlign = "center";
-        ctx.shadowColor = "#000";
-        ctx.shadowBlur = 10;
-        ctx.fillText("Vui lòng đưa khuôn mặt vào Camera", canvasElement.width / 2, canvasElement.height / 2);
+    html += '<div class="pr-letterhead">'+
+      '<div class="pr-lh-col">'+
+        '<div class="pr-lh-1">ĐIỆN LỰC RẠCH GIÁ</div>'+
+        '<div class="pr-lh-2">TỔ KINH DOANH</div>'+
+        '<div class="pr-lh-rule"></div>'+
+      '</div>'+
+      '<div class="pr-lh-col pr-lh-right">'+
+        '<div class="pr-lh-1">CỘNG HOÀ XÃ HỘI CHỦ NGHĨA VIỆT NAM</div>'+
+        '<div class="pr-lh-2">Độc lập - Tự do - Hạnh phúc</div>'+
+        '<div class="pr-lh-rule"></div>'+
+      '</div>'+
+    '</div>';
+
+    html += "<h2>Kế hoạch tuần — Công tác điện kế</h2>";
+    html += '<div class="pr-sub">Tuần '+vnDateFull(start)+' – '+vnDateFull(end)+'</div>';
+    html += '<div class="pr-meta">Xuất lúc '+new Date().toLocaleString("vi-VN")+
+            (state.activeTeamFilter ? " · Nhóm: "+escapeHTML((teamById(state.activeTeamFilter)||{}).name||"") : "") +
+            (state.typeFilter!=="all" ? " · Loại việc: "+escapeHTML(TYPE_META[state.typeFilter].label) : "") +
+            (state.statusFilter!=="all" ? " · Trạng thái: "+escapeHTML(STATUS_META[state.statusFilter].label) : "") +
+            (state.search ? " · Tìm kiếm: \""+escapeHTML(state.search)+"\"" : "") +
+            '</div>';
+
+    if(rows.length === 0){
+      html += '<div class="pr-empty">Không có công việc nào trong tuần này theo bộ lọc hiện tại.</div>';
+    } else {
+      html += '<table><thead><tr>'+
+        '<th style="width:9%">Ngày</th><th style="width:9%">Buổi</th><th style="width:13%">Nhóm</th><th style="width:15%">Loại việc</th>'+
+        '<th style="width:8%">SL</th><th style="width:20%">Khu vực / Trạm</th>'+
+        '<th style="width:11%">Trạng thái</th><th style="width:15%">Ghi chú</th>'+
+        '</tr></thead><tbody>';
+
+      var lastDayIndex = -1;
+      rows.forEach(function(r){
+        var t = r.task;
+        var team = teamById(t.teamId);
+        var typeMeta = TYPE_META[t.type] || TYPE_META["khac"];
+        var statusMeta = STATUS_META[t.status] || STATUS_META["chua-thuc-hien"];
+        if(r.dayIndex !== lastDayIndex){
+          html += '<tr class="pr-day-sep"><td colspan="8">'+DAY_NAMES[r.dayIndex]+' — '+vnDateFull(r.dayDate)+'</td></tr>';
+          lastDayIndex = r.dayIndex;
+        }
+        html += '<tr>'+
+          '<td>'+vnDateFull(r.dayDate)+'</td>'+
+          '<td>'+PERIOD_META[r.period].label+'</td>'+
+          '<td><span class="pr-dot" style="background:'+(team?team.color:"#93A3A7")+'"></span>'+(team?escapeHTML(team.name):"Chưa phân nhóm")+'</td>'+
+          '<td>'+typeMeta.icon+' '+escapeHTML(typeMeta.label)+'</td>'+
+          '<td>'+escapeHTML(t.quantity)+'</td>'+
+          '<td>'+escapeHTML(t.area||"")+'</td>'+
+          '<td><span class="pr-dot" style="background:'+(STATUS_HEX[t.status]||"#93A3A7")+'"></span>'+escapeHTML(statusMeta.label)+'</td>'+
+          '<td>'+escapeHTML(t.note||"")+'</td>'+
+          '</tr>';
+      });
+      html += "</tbody></table>";
+    }
+    container.innerHTML = html;
+    return container;
+  }
+
+  async function handleExportPdf(){
+    if(typeof html2canvas === "undefined" || typeof window.jspdf === "undefined"){
+      alert("Không tải được thư viện xuất PDF. Vui lòng kiểm tra kết nối mạng và thử lại.");
+      return;
+    }
+    var btn = document.getElementById("exportPdfBtn");
+    var originalLabel = btn.innerHTML;
+    btn.disabled = true;
+    btn.textContent = "Đang tạo PDF…";
+    try{
+      var rows = getWeekRowsForExport();
+      var el = buildPrintReport(rows);
+      var canvas = await html2canvas(el, { scale: 2, backgroundColor: "#ffffff" });
+      var imgData = canvas.toDataURL("image/png");
+      var jsPDF = window.jspdf.jsPDF;
+      var pdf = new jsPDF("p", "mm", "a4");
+      var pageWidth = pdf.internal.pageSize.getWidth();
+      var pageHeight = pdf.internal.pageSize.getHeight();
+      var imgWidth = pageWidth;
+      var imgHeight = (canvas.height * imgWidth) / canvas.width;
+      var heightLeft = imgHeight;
+      var position = 0;
+
+      pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+      while(heightLeft > 0){
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
+        heightLeft -= pageHeight;
       }
+      pdf.save(exportFileNameBase() + ".pdf");
+    } catch(err){
+      console.error("Lỗi xuất PDF:", err);
+      alert("Có lỗi khi tạo file PDF. Vui lòng thử lại.");
+    } finally {
+      document.getElementById("printReport").innerHTML = "";
+      btn.disabled = false;
+      btn.innerHTML = originalLabel;
     }
+  }
 
-    // 5. Khởi chạy luồng Camera
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await faceMesh.send({ image: videoElement });
-      },
-      width: 640,
-      height: 480
+  // ---------- task modal ----------
+  function populateTaskFormSelects(){
+    var typeSel = document.getElementById("f-type");
+    typeSel.innerHTML = "";
+    Object.keys(TYPE_META).forEach(function(k){
+      var o = document.createElement("option"); o.value=k; o.textContent=TYPE_META[k].label; typeSel.appendChild(o);
     });
-    camera.start();
-
-    // 6. Xử lý chức năng Ghi và Lưu Video
-    recordBtn.addEventListener('click', () => {
-      if (!isRecording) startRecording();
-      else stopRecording();
+    var periodSel = document.getElementById("f-period");
+    periodSel.innerHTML = "";
+    PERIOD_ORDER.forEach(function(k){
+      var o = document.createElement("option"); o.value=k; o.textContent=PERIOD_META[k].label; periodSel.appendChild(o);
     });
+    var teamSel = document.getElementById("f-team");
+    teamSel.innerHTML = "";
+    state.teams.forEach(function(t){
+      var o = document.createElement("option"); o.value=t.id; o.textContent=t.name; teamSel.appendChild(o);
+    });
+    var statusSel = document.getElementById("f-status");
+    statusSel.innerHTML = "";
+    Object.keys(STATUS_META).forEach(function(k){
+      var o = document.createElement("option"); o.value=k; o.textContent=STATUS_META[k].label; statusSel.appendChild(o);
+    });
+  }
 
-    function startRecording() {
-      recordedChunks = [];
-      const stream = canvasElement.captureStream(30); // Lấy 30 FPS từ Canvas
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+  function openTaskModal(taskId, prefillDate, prefillPeriod){
+    populateTaskFormSelects();
+    state.editingTaskId = taskId || null;
+    var titleEl = document.getElementById("taskModalTitle");
+    var deleteBtn = document.getElementById("deleteTaskBtn");
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) recordedChunks.push(e.data);
+    if(taskId){
+      var t = state.tasks.find(function(x){ return x.id===taskId; });
+      titleEl.textContent = "Chỉnh sửa công việc";
+      deleteBtn.style.visibility = "visible";
+      document.getElementById("f-type").value = t.type;
+      document.getElementById("f-period").value = t.period || "sang";
+      document.getElementById("f-team").value = t.teamId || "";
+      document.getElementById("f-date").value = t.date;
+      document.getElementById("f-quantity").value = t.quantity != null ? t.quantity : 1;
+      document.getElementById("f-area").value = t.area || "";
+      document.getElementById("f-status").value = t.status;
+      document.getElementById("f-note").value = t.note || "";
+    } else {
+      titleEl.textContent = "Thêm công việc";
+      deleteBtn.style.visibility = "hidden";
+      document.getElementById("f-type").value = "thay-dien-ke";
+      document.getElementById("f-period").value = prefillPeriod || "sang";
+      if(state.teams[0]) document.getElementById("f-team").value = state.teams[0].id;
+      document.getElementById("f-date").value = prefillDate || isoDate(state.weekStart);
+      document.getElementById("f-quantity").value = 1;
+      document.getElementById("f-area").value = "";
+      document.getElementById("f-status").value = "chua-thuc-hien";
+      document.getElementById("f-note").value = "";
+    }
+    document.getElementById("taskOverlay").classList.add("open");
+  }
+  function closeTaskModal(){
+    document.getElementById("taskOverlay").classList.remove("open");
+    state.editingTaskId = null;
+  }
+
+  async function handleTaskSubmit(e){
+    e.preventDefault();
+    var data = {
+      type: document.getElementById("f-type").value,
+      period: document.getElementById("f-period").value,
+      teamId: document.getElementById("f-team").value,
+      date: document.getElementById("f-date").value,
+      quantity: parseInt(document.getElementById("f-quantity").value, 10) || 1,
+      area: document.getElementById("f-area").value.trim(),
+      status: document.getElementById("f-status").value,
+      note: document.getElementById("f-note").value.trim()
+    };
+    if(!data.area || !data.date){ return; }
+
+    if(state.editingTaskId){
+      var t = state.tasks.find(function(x){ return x.id===state.editingTaskId; });
+      Object.assign(t, data);
+    } else {
+      data.id = uid("task");
+      state.tasks.push(data);
+    }
+    await saveData();
+    closeTaskModal();
+  }
+
+  async function handleDeleteTask(){
+    if(!state.editingTaskId) return;
+    if(!confirm("Xoá công việc này?")) return;
+    state.tasks = state.tasks.filter(function(t){ return t.id !== state.editingTaskId; });
+    await saveData();
+    closeTaskModal();
+  }
+
+  // ---------- staff management ----------
+  function renderStaffList(){
+    var wrap = document.getElementById("staffList");
+    if(state.staff.length === 0){
+      wrap.innerHTML = '<div class="staff-empty">Chưa có nhân sự nào — thêm ở form bên dưới.</div>';
+      return;
+    }
+    wrap.innerHTML = "";
+    state.staff.forEach(function(s){
+      var row = document.createElement("div");
+      row.className = "staff-row";
+      row.innerHTML = '<span>'+escapeHTML(s.name)+'</span>';
+      var delBtn = document.createElement("button");
+      delBtn.className = "icon-btn"; delBtn.textContent = "✕"; delBtn.title = "Xoá nhân sự";
+      delBtn.onclick = async function(){
+        if(!confirm('Xoá nhân sự "'+s.name+'" khỏi danh sách Tổ? Người này cũng sẽ được gỡ khỏi mọi nhóm.')) return;
+        state.staff = state.staff.filter(function(x){ return x.id !== s.id; });
+        state.teams.forEach(function(team){
+          team.memberIds = (team.memberIds||[]).filter(function(id){ return id !== s.id; });
+        });
+        await saveData();
+        renderStaffList();
+        renderTeamList();
       };
+      row.appendChild(delBtn);
+      wrap.appendChild(row);
+    });
+  }
+  async function handleAddStaff(e){
+    e.preventDefault();
+    var input = document.getElementById("newStaffName");
+    var name = input.value.trim();
+    if(!name) return;
+    state.staff.push({ id: uid("staff"), name: name });
+    await saveData();
+    input.value = "";
+    renderStaffList();
+    renderTeamList();
+  }
 
-      mediaRecorder.onstop = downloadVideo;
-      mediaRecorder.start();
-      isRecording = true;
-      recordBtn.textContent = '⏹ Dừng & Lưu Video';
-      recordBtn.style.background = 'linear-gradient(45deg, #11998e, #38ef7d)';
-      recordBtn.style.boxShadow = '0 4px 15px rgba(56, 239, 125, 0.4)';
-    }
+  // ---------- team modal ----------
+  function unusedColor(){
+    var used = state.teams.map(function(t){ return t.color; });
+    var free = TEAM_PALETTE.find(function(c){ return used.indexOf(c) === -1; });
+    return free || TEAM_PALETTE[Math.floor(Math.random()*TEAM_PALETTE.length)];
+  }
+  function renderColorPick(selected){
+    var wrap = document.getElementById("colorPick");
+    wrap.innerHTML = "";
+    TEAM_PALETTE.forEach(function(c){
+      var sw = document.createElement("div");
+      sw.className = "color-swatch" + (c===selected ? " selected" : "");
+      sw.style.background = c;
+      sw.dataset.color = c;
+      sw.onclick = function(){
+        wrap.querySelectorAll(".color-swatch").forEach(function(el){ el.classList.remove("selected"); });
+        sw.classList.add("selected");
+      };
+      wrap.appendChild(sw);
+    });
+  }
+  async function toggleTeamMember(teamId, staffId){
+    var team = teamById(teamId);
+    if(!team) return;
+    team.memberIds = team.memberIds || [];
+    var idx = team.memberIds.indexOf(staffId);
+    if(idx === -1) team.memberIds.push(staffId); else team.memberIds.splice(idx,1);
+    await saveData();
+    renderTeamList();
+  }
+  function renderTeamList(){
+    var wrap = document.getElementById("teamList");
+    wrap.innerHTML = "";
+    state.teams.forEach(function(t){
+      var memberIds = t.memberIds || [];
+      var row = document.createElement("div");
+      row.className = "team-mgmt-row";
 
-    function stopRecording() {
-      mediaRecorder.stop();
-      isRecording = false;
-      recordBtn.textContent = '🔴 Ghi hình Video ngắn';
-      recordBtn.style.background = 'linear-gradient(45deg, #ff0844, #ffb199)';
-      recordBtn.style.boxShadow = '0 4px 15px rgba(255, 8, 68, 0.4)';
-    }
+      var top = document.createElement("div");
+      top.className = "team-mgmt-top";
+      top.innerHTML =
+        '<div class="team-mgmt-left"><span class="dot" style="background:'+t.color+'"></span>'+escapeHTML(t.name)+
+        ' <span class="count">('+memberIds.length+' người)</span></div>';
+      var delBtn = document.createElement("button");
+      delBtn.className = "icon-btn"; delBtn.textContent = "✕"; delBtn.title = "Xoá nhóm";
+      delBtn.onclick = async function(){
+        if(!confirm('Xoá "'+t.name+'"? Các công việc của nhóm này sẽ chuyển sang "Chưa phân nhóm".')) return;
+        state.teams = state.teams.filter(function(x){ return x.id !== t.id; });
+        state.tasks.forEach(function(task){ if(task.teamId===t.id) task.teamId=null; });
+        if(state.activeTeamFilter===t.id) state.activeTeamFilter=null;
+        await saveData();
+        renderTeamList();
+      };
+      top.appendChild(delBtn);
+      row.appendChild(top);
 
-    function downloadVideo() {
-      const blob = new Blob(recordedChunks, { type: 'video/webm' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Face-Motion-${Date.now()}.webm`;
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-      }, 100);
+      if(state.staff.length === 0){
+        var hint = document.createElement("div");
+        hint.className = "member-empty";
+        hint.textContent = "Chưa có nhân sự trong danh sách Tổ để phân công.";
+        row.appendChild(hint);
+      } else {
+        var chipRow = document.createElement("div");
+        chipRow.className = "member-chip-row";
+        state.staff.forEach(function(s){
+          var on = memberIds.indexOf(s.id) !== -1;
+          var chip = document.createElement("button");
+          chip.type = "button";
+          chip.className = "member-chip" + (on ? " on" : "");
+          chip.textContent = s.name;
+          chip.title = on ? "Bấm để gỡ khỏi nhóm" : "Bấm để phân vào nhóm";
+          chip.onclick = function(){ toggleTeamMember(t.id, s.id); };
+          chipRow.appendChild(chip);
+        });
+        row.appendChild(chipRow);
+      }
+
+      wrap.appendChild(row);
+    });
+  }
+  function openTeamModal(){
+    renderStaffList();
+    renderTeamList();
+    renderColorPick(unusedColor());
+    document.getElementById("newTeamName").value = "";
+    document.getElementById("newStaffName").value = "";
+    document.getElementById("teamOverlay").classList.add("open");
+  }
+  function closeTeamModal(){ document.getElementById("teamOverlay").classList.remove("open"); }
+
+  async function handleAddTeam(e){
+    e.preventDefault();
+    var name = document.getElementById("newTeamName").value.trim();
+    if(!name) return;
+    var selectedSwatch = document.querySelector("#colorPick .color-swatch.selected");
+    var color = selectedSwatch ? selectedSwatch.dataset.color : unusedColor();
+    state.teams.push({ id: uid("team"), name: name, color: color, memberIds: [] });
+    await saveData();
+    document.getElementById("newTeamName").value = "";
+    renderColorPick(unusedColor());
+    renderTeamList();
+  }
+
+  async function handleResetData(){
+    if(!confirm("Xoá toàn bộ dữ liệu (nhân sự, nhóm và công việc) của đơn vị này? Hành động này không thể hoàn tác.")) return;
+    seedDefaults();
+    await saveData();
+    renderStaffList();
+    renderTeamList();
+    renderColorPick(unusedColor());
+  }
+
+  // ---------- init ----------
+  function bindEvents(){
+    document.getElementById("gateForm").onsubmit = function(e){
+      e.preventDefault();
+      startWorkspace(document.getElementById("gateCodeInput").value);
+    };
+    document.getElementById("changeWorkspaceBtn").onclick = function(){
+      if(docRef) docRef = null;
+      localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+      document.getElementById("appRoot").style.display = "none";
+      document.getElementById("gateCodeInput").value = "";
+      document.getElementById("workspaceGate").style.display = "flex";
+    };
+
+    document.getElementById("prevWeek").onclick = function(){ state.weekStart = addDays(state.weekStart,-7); renderAll(); };
+    document.getElementById("nextWeek").onclick = function(){ state.weekStart = addDays(state.weekStart,7); renderAll(); };
+    document.getElementById("todayBtn").onclick = function(){ state.weekStart = getMonday(new Date()); renderAll(); };
+
+    document.getElementById("addTaskBtn").onclick = function(){ openTaskModal(null, isoDate(state.weekStart), "sang"); };
+    document.getElementById("cancelTaskBtn").onclick = closeTaskModal;
+    document.getElementById("taskForm").onsubmit = handleTaskSubmit;
+    document.getElementById("deleteTaskBtn").onclick = handleDeleteTask;
+    document.getElementById("taskOverlay").addEventListener("click", function(e){ if(e.target.id==="taskOverlay") closeTaskModal(); });
+
+    document.getElementById("manageTeamsBtn").onclick = openTeamModal;
+    document.getElementById("exportExcelBtn").onclick = handleExportExcel;
+    document.getElementById("exportPdfBtn").onclick = handleExportPdf;
+    document.getElementById("closeTeamModalBtn").onclick = closeTeamModal;
+    document.getElementById("addTeamForm").onsubmit = handleAddTeam;
+    document.getElementById("addStaffForm").onsubmit = handleAddStaff;
+    document.getElementById("resetDataBtn").onclick = handleResetData;
+    document.getElementById("teamOverlay").addEventListener("click", function(e){ if(e.target.id==="teamOverlay") closeTeamModal(); });
+
+    document.getElementById("typeFilter").onchange = function(e){ state.typeFilter = e.target.value; renderAll(); };
+    document.getElementById("statusFilter").onchange = function(e){ state.statusFilter = e.target.value; renderAll(); };
+    document.getElementById("searchInput").oninput = function(e){ state.search = e.target.value; renderAll(); };
+
+    document.addEventListener("keydown", function(e){
+      if(e.key==="Escape"){ closeTaskModal(); closeTeamModal(); }
+    });
+  }
+
+  function init(){
+    bindEvents();
+    renderTypeFilterOptions();
+    renderStatusFilterOptions();
+
+    if(!isFirebaseConfigured()){
+      document.getElementById("configScreen").style.display = "flex";
+      return;
     }
-  </script>
+    var savedCode = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if(savedCode){
+      document.getElementById("gateCodeInput").value = savedCode;
+      startWorkspace(savedCode);
+    } else {
+      document.getElementById("workspaceGate").style.display = "flex";
+    }
+  }
+
+  init();
+})();
+</script>
 </body>
 </html>
